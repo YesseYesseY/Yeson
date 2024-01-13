@@ -10,6 +10,7 @@ namespace Yeson
         INT = 3,
         FLOAT = 4,
         ARRAY = 5,
+        OBJECT = 6,
     }
 
     public class YesonEncoder
@@ -42,6 +43,7 @@ namespace Yeson
             else if (val is float) Encode((float)val);
             else if (val is double) Encode((double)val);
             else if (val is Array) Encode((Array)val);
+            else if (val is Dictionary<string, object?>) Encode((Dictionary<string, object?>)val);
             else
                 throw new Exception("Unsupported type");
         }
@@ -153,6 +155,21 @@ namespace Yeson
             foreach (var item in val)
                 Encode(item);
         }
+
+        private void Encode(Dictionary<string, object?> val)
+        {
+            byte header = (byte)YesonTypes.OBJECT << 4;
+            var len = Math.Min(val.Count, 0b1111);
+            header |= (byte)len;
+            writer.Write(header);
+            if (len == 0b1111)
+                writer.Write((byte)val.Count);
+            foreach (var item in val)
+            {
+                Encode(item.Key);
+                Encode(item.Value);
+            }
+        }
     }
 
     
@@ -212,6 +229,8 @@ namespace Yeson
                     return DecodeFloat(info);
                 case YesonTypes.ARRAY:
                     return DecodeArray(info);
+                case YesonTypes.OBJECT:
+                    return DecodeObject(info);
                 default:
                     throw new Exception("Unsupported type");
             }
@@ -264,15 +283,32 @@ namespace Yeson
             }
         }
         
-        private object[] DecodeArray(byte info)
+        // TODO: make this better
+        private object?[] DecodeArray(byte info)
         {
             var len = info;
             if (len == 0b1111)
                 len = reader.ReadByte();
-            var arr = new object[len];
+            var arr = new object?[len];
             for (int i = 0; i < len; i++)
                 arr[i] = Decode();
             return arr;
+        }
+
+        private Dictionary<string, object?> DecodeObject(byte info)
+        {
+            var len = info;
+            if (len == 0b1111)
+                len = reader.ReadByte();
+            var dict = new Dictionary<string, object?>(len);
+            for (int i = 0; i < len; i++)
+            {
+                var header = DecodeHeader();
+                var key = DecodeString(header.Item2);
+                var val = Decode();
+                dict.Add(key, val);
+            }
+            return dict;
         }
     }
 }
